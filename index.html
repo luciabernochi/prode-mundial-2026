@@ -13,12 +13,21 @@
     <p>Predecí los resultados de la fase de grupos</p>
 
     <div class="landing-card">
-      <h2>¿Cuál es tu alias?</h2>
+      <h2 id="formTitle">Ingresá tu alias</h2>
+      <p id="formSubtitle" style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">
+        Si es tu primera vez, elegí un alias y contraseña. Si ya jugaste, ingresá los mismos datos.
+      </p>
+
       <div class="form-group">
-        <label>Alias (nombre visible en el ranking)</label>
-        <input type="text" id="aliasInput" placeholder="Ej: Luci, El Flaco, etc." maxlength="20" autocomplete="off">
+        <label>Alias (visible en el ranking)</label>
+        <input type="text" id="aliasInput" placeholder="Ej: Luci, El Flaco..." maxlength="20" autocomplete="off">
       </div>
-      <button class="btn btn-primary" onclick="entrar()">Entrar al prode →</button>
+      <div class="form-group">
+        <label>Contraseña</label>
+        <input type="password" id="pwInput" placeholder="Mínimo 4 caracteres" maxlength="40">
+      </div>
+
+      <button class="btn btn-primary" id="enterBtn" onclick="entrar()">Entrar al prode →</button>
       <div id="error" style="color:#f85149;font-size:13px;margin-top:10px;display:none;"></div>
     </div>
 
@@ -32,28 +41,66 @@
   <script src="js/firebase-config.js"></script>
   <script>
     const aliasInput = document.getElementById("aliasInput");
-    const errorEl = document.getElementById("error");
+    const pwInput    = document.getElementById("pwInput");
+    const errorEl    = document.getElementById("error");
+    const enterBtn   = document.getElementById("enterBtn");
 
-    // Si ya tiene alias guardado, redirigir directo
+    // Si ya tiene sesión guardada en este dispositivo, entrar directo
     const saved = localStorage.getItem("prode_alias");
     if (saved) window.location.href = "predictions.html";
 
-    aliasInput.addEventListener("keydown", e => { if (e.key === "Enter") entrar(); });
+    [aliasInput, pwInput].forEach(el => {
+      el.addEventListener("keydown", e => { if (e.key === "Enter") entrar(); });
+    });
+
+    async function hashPassword(pw) {
+      const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pw));
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,"0")).join("");
+    }
 
     async function entrar() {
+      hideError();
       const alias = aliasInput.value.trim();
+      const pw    = pwInput.value;
+
       if (!alias || alias.length < 2) { showError("El alias debe tener al menos 2 caracteres."); return; }
+      if (!pw || pw.length < 4)       { showError("La contraseña debe tener al menos 4 caracteres."); return; }
+
+      enterBtn.disabled = true;
+      enterBtn.textContent = "Verificando...";
 
       try {
+        const hash    = await hashPassword(pw);
         const userRef = db.collection("users").doc(alias);
-        const snap = await userRef.get();
+        const snap    = await userRef.get();
+
         if (!snap.exists) {
-          await userRef.set({ alias, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+          // Usuario nuevo → crear
+          await userRef.set({
+            alias,
+            passwordHash: hash,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+          localStorage.setItem("prode_alias", alias);
+          window.location.href = "predictions.html";
+
+        } else {
+          // Usuario existente → verificar contraseña
+          const data = snap.data();
+          if (data.passwordHash !== hash) {
+            showError("Contraseña incorrecta.");
+            enterBtn.disabled = false;
+            enterBtn.textContent = "Entrar al prode →";
+            return;
+          }
+          localStorage.setItem("prode_alias", alias);
+          window.location.href = "predictions.html";
         }
-        localStorage.setItem("prode_alias", alias);
-        window.location.href = "predictions.html";
+
       } catch (err) {
         showError("Error al conectar. Revisá tu conexión.");
+        enterBtn.disabled = false;
+        enterBtn.textContent = "Entrar al prode →";
         console.error(err);
       }
     }
@@ -61,6 +108,9 @@
     function showError(msg) {
       errorEl.textContent = msg;
       errorEl.style.display = "block";
+    }
+    function hideError() {
+      errorEl.style.display = "none";
     }
   </script>
 </body>
