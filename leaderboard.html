@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ranking – Prode Mundial 2026</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="header">
+    <div class="header-logo">⚽ Prode <span>Mundial</span></div>
+    <nav class="header-nav">
+      <a href="predictions.html">Mis pronósticos</a>
+      <a href="leaderboard.html" style="color:var(--text)">Ranking</a>
+    </nav>
+  </div>
+
+  <div class="container">
+    <div style="margin:16px 0 20px;">
+      <h2 style="font-size:20px;">🏆 Ranking en vivo</h2>
+      <p style="font-size:13px;color:var(--text-muted);margin-top:4px;">
+        3 pts exacto · 1 pt resultado correcto · 0 pts incorrecto
+      </p>
+    </div>
+
+    <div id="podium" class="podium" style="display:none;"></div>
+    <div id="loading" class="loading"><div class="spinner"></div><br>Cargando ranking…</div>
+    <div id="table-wrap" style="display:none;">
+      <table class="lb-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Alias</th>
+            <th style="text-align:right">Pts</th>
+            <th style="text-align:right">Exactos</th>
+            <th style="text-align:right">Result.</th>
+          </tr>
+        </thead>
+        <tbody id="lb-body"></tbody>
+      </table>
+    </div>
+    <div id="empty" class="empty" style="display:none;">
+      Aún no hay pronósticos cargados.
+    </div>
+  </div>
+
+  <div class="toast-wrap" id="toasts"></div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
+  <script src="js/firebase-config.js"></script>
+  <script src="js/matches.js"></script>
+  <script>
+    let results = {};
+    let predictions = {};
+
+    // Escuchar resultados en tiempo real
+    db.collection("results").onSnapshot(snap => {
+      results = {};
+      snap.forEach(doc => { results[doc.id] = doc.data(); });
+      render();
+    });
+
+    // Escuchar predicciones en tiempo real
+    db.collection("predictions").onSnapshot(snap => {
+      predictions = {};
+      snap.forEach(doc => {
+        const d = doc.data();
+        if (!predictions[d.userId]) predictions[d.userId] = {};
+        predictions[d.userId][d.matchId] = d;
+      });
+      render();
+    });
+
+    function render() {
+      const users = Object.keys(predictions);
+      if (users.length === 0) {
+        document.getElementById("loading").style.display = "none";
+        document.getElementById("empty").style.display = "block";
+        return;
+      }
+
+      const scores = users.map(userId => {
+        let total = 0, exact = 0, correct = 0;
+        const preds = predictions[userId];
+        for (const matchId in preds) {
+          const res = results[matchId];
+          if (!res) continue;
+          const pts = calcPoints(preds[matchId], res);
+          total += pts;
+          if (pts === 3) exact++;
+          else if (pts === 1) correct++;
+        }
+        return { userId, total, exact, correct };
+      });
+
+      scores.sort((a, b) => b.total - a.total || b.exact - a.exact);
+
+      document.getElementById("loading").style.display = "none";
+      document.getElementById("empty").style.display = "none";
+      document.getElementById("podium").style.display = scores.length >= 1 ? "flex" : "none";
+      document.getElementById("table-wrap").style.display = "block";
+
+      // Podium (top 3)
+      const podiumEl = document.getElementById("podium");
+      const podiumTop = scores.slice(0, 3);
+      const podiumClass = ["p1","p2","p3"];
+      const podiumEmoji = ["🥇","🥈","🥉"];
+      podiumEl.innerHTML = podiumTop.map((s, i) => `
+        <div class="podium-item ${podiumClass[i]}">
+          <div class="podium-pos">${podiumEmoji[i]}</div>
+          <div class="podium-alias">${escHtml(s.userId)}</div>
+          <div class="podium-pts">${s.total} pts</div>
+          <div class="podium-sub">${s.exact}✓ ${s.correct}~</div>
+        </div>
+      `).join("");
+
+      // Tabla completa
+      const tbody = document.getElementById("lb-body");
+      tbody.innerHTML = scores.map((s, i) => `
+        <tr>
+          <td class="lb-pos">${i + 1}</td>
+          <td class="lb-alias">${escHtml(s.userId)}</td>
+          <td class="lb-pts">${s.total}</td>
+          <td class="lb-exact">${s.exact} exactos</td>
+          <td class="lb-exact">${s.correct} result.</td>
+        </tr>
+      `).join("");
+    }
+
+    function escHtml(s) {
+      return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    }
+  </script>
+</body>
+</html>

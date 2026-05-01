@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin – Prode Mundial 2026</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- Login admin -->
+  <div id="loginScreen" class="landing">
+    <div class="landing-card">
+      <div style="font-size:36px;margin-bottom:12px;">🔐</div>
+      <h2 style="margin-bottom:20px;">Panel Admin</h2>
+      <div class="form-group">
+        <label>Contraseña</label>
+        <input type="password" id="pwInput" placeholder="Contraseña admin">
+      </div>
+      <button class="btn btn-primary" onclick="checkPw()">Entrar</button>
+      <div id="pwError" style="color:#f85149;font-size:13px;margin-top:10px;display:none;">Contraseña incorrecta.</div>
+    </div>
+  </div>
+
+  <!-- Panel admin -->
+  <div id="adminPanel" style="display:none;">
+    <div class="header">
+      <div class="header-logo">⚽ Prode <span>Admin</span></div>
+      <nav class="header-nav">
+        <a href="leaderboard.html">Ver Ranking</a>
+        <a href="#" onclick="adminLogout()" style="color:var(--red)">Salir</a>
+      </nav>
+    </div>
+
+    <div class="container">
+      <div style="margin:16px 0 12px;">
+        <h2 style="font-size:18px;">Cargar resultados reales</h2>
+        <p style="font-size:12px;color:var(--text-muted);margin-top:4px;">
+          Una vez cargado el resultado, no se puede modificar.
+        </p>
+      </div>
+
+      <!-- Tabs de grupos -->
+      <div class="tabs" id="adminTabs"></div>
+      <div id="adminContent"></div>
+    </div>
+  </div>
+
+  <div class="toast-wrap" id="toasts"></div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
+  <script src="js/firebase-config.js"></script>
+  <script src="js/matches.js"></script>
+  <script>
+    const GROUPS = ["A","B","C","D","E","F","G","H","I","J","K","L"];
+    let adminGroup = "A";
+    let results = {};
+    let authed = false;
+
+    document.getElementById("pwInput").addEventListener("keydown", e => {
+      if (e.key === "Enter") checkPw();
+    });
+
+    function checkPw() {
+      const pw = document.getElementById("pwInput").value;
+      if (pw === ADMIN_PASSWORD) {
+        authed = true;
+        document.getElementById("loginScreen").style.display = "none";
+        document.getElementById("adminPanel").style.display = "block";
+        initAdmin();
+      } else {
+        document.getElementById("pwError").style.display = "block";
+      }
+    }
+
+    function adminLogout() {
+      authed = false;
+      document.getElementById("loginScreen").style.display = "flex";
+      document.getElementById("adminPanel").style.display = "none";
+      document.getElementById("pwInput").value = "";
+    }
+
+    function initAdmin() {
+      // Render tabs
+      const tabsEl = document.getElementById("adminTabs");
+      GROUPS.forEach(g => {
+        const btn = document.createElement("button");
+        btn.className = "tab-btn" + (g === adminGroup ? " active" : "");
+        btn.textContent = "Grupo " + g;
+        btn.onclick = () => selectAdminGroup(g);
+        tabsEl.appendChild(btn);
+      });
+
+      // Escuchar resultados en tiempo real
+      db.collection("results").onSnapshot(snap => {
+        results = {};
+        snap.forEach(doc => { results[doc.id] = doc.data(); });
+        renderAdminGroup();
+      });
+    }
+
+    function selectAdminGroup(g) {
+      adminGroup = g;
+      document.querySelectorAll("#adminTabs .tab-btn").forEach((b, i) => {
+        b.classList.toggle("active", GROUPS[i] === g);
+      });
+      renderAdminGroup();
+    }
+
+    function renderAdminGroup() {
+      const matches = MATCHES.filter(m => m.group === adminGroup);
+      document.getElementById("adminContent").innerHTML = matches.map(renderResultCard).join("");
+    }
+
+    function renderResultCard(match) {
+      const res = results[match.id];
+      const locked = isMatchLocked(match);
+
+      if (res) {
+        // Resultado ya cargado
+        return `
+          <div class="result-card done">
+            <div class="match-meta">
+              <span>${formatDate(match.date, match.time)}</span>
+              <span class="badge badge-3">✓ Resultado cargado</span>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+              <span style="flex:1;text-align:right;font-weight:600;">${getFlag(match.home)} ${match.home}</span>
+              <span style="font-size:24px;font-weight:800;padding:0 12px;">${res.home} – ${res.away}</span>
+              <span style="flex:1;text-align:left;font-weight:600;">${match.away} ${getFlag(match.away)}</span>
+            </div>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="result-card" id="rcard-${match.id}">
+          <div class="match-meta">
+            <span>${formatDate(match.date, match.time)}</span>
+            <span class="badge ${locked ? "badge-locked" : "badge-open"}">${locked ? "⏰ Partido jugado" : "Próximo"}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span style="flex:1;text-align:right;font-weight:600;">${getFlag(match.home)} ${match.home}</span>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <input type="number" id="rh-${match.id}" class="score-input" min="0" max="20" placeholder="0">
+              <span class="score-sep">–</span>
+              <input type="number" id="ra-${match.id}" class="score-input" min="0" max="20" placeholder="0">
+            </div>
+            <span style="flex:1;text-align:left;font-weight:600;">${match.away} ${getFlag(match.away)}</span>
+          </div>
+          <div style="text-align:center;margin-top:12px;">
+            <button class="btn btn-primary btn-sm" style="width:auto"
+              onclick="saveResult('${match.id}')">
+              Guardar resultado
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    async function saveResult(matchId) {
+      if (!authed) return;
+
+      // Verificar que no exista ya
+      const docRef = db.collection("results").doc(matchId);
+      const existing = await docRef.get();
+      if (existing.exists) {
+        toast("El resultado ya fue cargado y no se puede modificar.", "error");
+        return;
+      }
+
+      const hEl = document.getElementById("rh-" + matchId);
+      const aEl = document.getElementById("ra-" + matchId);
+      const hVal = hEl ? hEl.value.trim() : "";
+      const aVal = aEl ? aEl.value.trim() : "";
+
+      if (hVal === "" || aVal === "") { toast("Ingresá ambos valores.", "error"); return; }
+      const home = parseInt(hVal);
+      const away = parseInt(aVal);
+      if (isNaN(home) || isNaN(away) || home < 0 || away < 0) {
+        toast("Resultado inválido.", "error"); return;
+      }
+
+      const match = MATCHES.find(m => m.id === matchId);
+      const confirmMsg = `Confirmar resultado:\n${match.home} ${home} – ${away} ${match.away}\n\nEsto NO se puede cambiar después.`;
+      if (!confirm(confirmMsg)) return;
+
+      try {
+        await docRef.set({
+          home,
+          away,
+          matchId,
+          enteredAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        toast("Resultado guardado correctamente ✓", "success");
+      } catch (err) {
+        toast("Error al guardar.", "error");
+        console.error(err);
+      }
+    }
+
+    function toast(msg, type = "") {
+      const wrap = document.getElementById("toasts");
+      const el = document.createElement("div");
+      el.className = `toast ${type}`;
+      el.textContent = msg;
+      wrap.appendChild(el);
+      setTimeout(() => el.remove(), 4000);
+    }
+  </script>
+</body>
+</html>

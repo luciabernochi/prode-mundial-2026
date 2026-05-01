@@ -1,0 +1,29 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Usuarios: crear una vez, nunca modificar
+    match /users/{userId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if false;
+    }
+
+    // Pronósticos: crear UNA VEZ por usuario+partido, nunca modificar
+    match /predictions/{predId} {
+      allow read: if true;
+      allow create: if !exists(/databases/$(database)/documents/predictions/$(predId));
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // Resultados: crear UNA VEZ, nunca modificar
+    // (la protección de quién puede crear se maneja con contraseña en el cliente)
+    match /results/{matchId} {
+      allow read: if true;
+      allow create: if !exists(/databases/$(database)/documents/results/$(matchId));
+      allow update: if false;
+      allow delete: if false;
+    }
+  }
+}

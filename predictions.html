@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mis pronósticos – Prode Mundial 2026</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="header">
+    <div class="header-logo">⚽ Prode <span>Mundial</span></div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span class="header-user" id="headerAlias"></span>
+      <nav class="header-nav">
+        <a href="predictions.html" style="color:var(--text)">Pronósticos</a>
+        <a href="leaderboard.html">Ranking</a>
+        <a href="#" onclick="logout()" style="color:var(--red)">Salir</a>
+      </nav>
+    </div>
+  </div>
+
+  <div class="container">
+    <div style="margin:16px 0 12px;display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <h2 style="font-size:18px;">Mis pronósticos</h2>
+        <p style="font-size:12px;color:var(--text-muted);margin-top:2px;">
+          Cerrás cuando empieza el partido · No se puede editar una vez enviado
+        </p>
+      </div>
+      <div id="myScore" style="text-align:right;display:none;">
+        <div style="font-size:22px;font-weight:800;color:var(--green-light)" id="myPts">0</div>
+        <div style="font-size:11px;color:var(--text-muted)">mis puntos</div>
+      </div>
+    </div>
+
+    <!-- Tabs de grupos -->
+    <div class="tabs" id="tabs"></div>
+
+    <!-- Contenido del grupo seleccionado -->
+    <div id="group-content">
+      <div class="loading"><div class="spinner"></div><br>Cargando…</div>
+    </div>
+  </div>
+
+  <div class="toast-wrap" id="toasts"></div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
+  <script src="js/firebase-config.js"></script>
+  <script src="js/matches.js"></script>
+  <script>
+    const alias = localStorage.getItem("prode_alias");
+    if (!alias) window.location.href = "index.html";
+    document.getElementById("headerAlias").textContent = alias;
+
+    const GROUPS = ["A","B","C","D","E","F","G","H","I","J","K","L"];
+    let activeGroup = "J"; // Empezar en grupo Argentina
+    let myPredictions = {};
+    let results = {};
+
+    function logout() {
+      localStorage.removeItem("prode_alias");
+      window.location.href = "index.html";
+    }
+
+    // Render tabs
+    const tabsEl = document.getElementById("tabs");
+    GROUPS.forEach(g => {
+      const btn = document.createElement("button");
+      btn.className = "tab-btn" + (g === activeGroup ? " active" : "");
+      btn.textContent = "Grupo " + g;
+      btn.onclick = () => selectGroup(g);
+      tabsEl.appendChild(btn);
+    });
+
+    function selectGroup(g) {
+      activeGroup = g;
+      document.querySelectorAll(".tab-btn").forEach((b, i) => {
+        b.classList.toggle("active", GROUPS[i] === g);
+      });
+      renderGroup();
+    }
+
+    // Escuchar mis predicciones en tiempo real
+    db.collection("predictions")
+      .where("userId", "==", alias)
+      .onSnapshot(snap => {
+        snap.forEach(doc => {
+          const d = doc.data();
+          myPredictions[d.matchId] = d;
+        });
+        renderGroup();
+        updateMyScore();
+      });
+
+    // Escuchar resultados en tiempo real
+    db.collection("results").onSnapshot(snap => {
+      results = {};
+      snap.forEach(doc => { results[doc.id] = doc.data(); });
+      renderGroup();
+      updateMyScore();
+    });
+
+    function updateMyScore() {
+      let total = 0;
+      for (const matchId in myPredictions) {
+        const res = results[matchId];
+        if (!res) continue;
+        total += calcPoints(myPredictions[matchId], res);
+      }
+      const anyResult = Object.keys(results).length > 0;
+      document.getElementById("myScore").style.display = anyResult ? "block" : "none";
+      document.getElementById("myPts").textContent = total + " pts";
+    }
+
+    function renderGroup() {
+      const matches = MATCHES.filter(m => m.group === activeGroup);
+      const content = document.getElementById("group-content");
+      content.innerHTML = matches.map(m => renderMatchCard(m)).join("");
+    }
+
+    function renderMatchCard(match) {
+      const locked = isMatchLocked(match);
+      const pred = myPredictions[match.id];
+      const result = results[match.id];
+      const hasPred = !!pred;
+      const inputDisabled = locked || hasPred ? "disabled" : "";
+
+      let ptsHtml = "";
+      if (pred && result) {
+        const pts = calcPoints(pred, result);
+        const cls = pts === 3 ? "badge-3" : pts === 1 ? "badge-1" : "badge-0";
+        const label = pts === 3 ? "✓✓ 3 pts" : pts === 1 ? "~ 1 pt" : "✗ 0 pts";
+        ptsHtml = `<span class="badge ${cls}">${label}</span>`;
+      } else if (pred) {
+        ptsHtml = `<span class="badge badge-pending">esperando resultado</span>`;
+      }
+
+      const homeVal = hasPred ? pred.home : "";
+      const awayVal = hasPred ? pred.away : "";
+
+      let resultHtml = "";
+      if (result) {
+        resultHtml = `<div class="score-result">Resultado real: <strong>${result.home} – ${result.away}</strong></div>`;
+      }
+
+      const statusBadge = hasPred
+        ? `<span class="badge badge-locked">🔒 Enviado</span>`
+        : locked
+        ? `<span class="badge badge-locked">⏰ Cerrado</span>`
+        : `<span class="badge badge-open">Abierto</span>`;
+
+      return `
+        <div class="match-card ${locked || hasPred ? "locked" : ""} ${result ? "has-result" : ""}" id="card-${match.id}">
+          <div class="match-meta">
+            <span>${formatDate(match.date, match.time)}</span>
+            <span>${statusBadge}</span>
+          </div>
+          <div class="match-teams">
+            <div class="team-home">
+              <span class="team-flag">${getFlag(match.home)}</span>
+              <span class="team-name">${match.home}</span>
+            </div>
+            <div class="vs">VS</div>
+            <div class="team-away">
+              <span class="team-flag">${getFlag(match.away)}</span>
+              <span class="team-name">${match.away}</span>
+            </div>
+          </div>
+          <div class="score-section">
+            <div class="score-input-wrap">
+              <input type="number" class="score-input" id="h-${match.id}"
+                min="0" max="20" value="${homeVal}" ${inputDisabled}
+                placeholder="0">
+              <span class="score-sep">–</span>
+              <input type="number" class="score-input" id="a-${match.id}"
+                min="0" max="20" value="${awayVal}" ${inputDisabled}
+                placeholder="0">
+            </div>
+            ${!hasPred && !locked ? `
+              <button class="btn btn-primary btn-sm" style="margin-left:12px;width:auto"
+                onclick="submitPred('${match.id}')">Enviar</button>
+            ` : ""}
+          </div>
+          ${ptsHtml ? `<div style="text-align:center;margin-top:10px;">${ptsHtml}</div>` : ""}
+          ${resultHtml}
+          <div style="font-size:11px;color:var(--text-muted);margin-top:8px;text-align:center">
+            📍 ${match.venue}
+          </div>
+        </div>
+      `;
+    }
+
+    async function submitPred(matchId) {
+      const match = MATCHES.find(m => m.id === matchId);
+      if (!match) return;
+
+      if (isMatchLocked(match)) {
+        toast("El partido ya empezó, no podés enviar.", "error");
+        renderGroup();
+        return;
+      }
+
+      if (myPredictions[matchId]) {
+        toast("Ya enviaste este pronóstico.", "error");
+        return;
+      }
+
+      const hEl = document.getElementById("h-" + matchId);
+      const aEl = document.getElementById("a-" + matchId);
+      const hVal = hEl.value.trim();
+      const aVal = aEl.value.trim();
+
+      if (hVal === "" || aVal === "") {
+        toast("Ingresá ambos puntajes.", "error"); return;
+      }
+      const home = parseInt(hVal);
+      const away = parseInt(aVal);
+      if (isNaN(home) || isNaN(away) || home < 0 || away < 0) {
+        toast("Puntaje inválido.", "error"); return;
+      }
+
+      const docId = `${alias}_${matchId}`;
+      const docRef = db.collection("predictions").doc(docId);
+
+      try {
+        const existing = await docRef.get();
+        if (existing.exists) {
+          toast("Ya existe un pronóstico para este partido.", "error");
+          return;
+        }
+        await docRef.set({
+          userId: alias,
+          matchId,
+          home,
+          away,
+          submittedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        myPredictions[matchId] = { home, away };
+        toast("Pronóstico guardado 🔒", "success");
+        renderGroup();
+        updateMyScore();
+      } catch (err) {
+        toast("Error al guardar. Intentá de nuevo.", "error");
+        console.error(err);
+      }
+    }
+
+    function toast(msg, type = "") {
+      const wrap = document.getElementById("toasts");
+      const el = document.createElement("div");
+      el.className = `toast ${type}`;
+      el.textContent = msg;
+      wrap.appendChild(el);
+      setTimeout(() => el.remove(), 3000);
+    }
+  </script>
+</body>
+</html>

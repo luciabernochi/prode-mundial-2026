@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Prode Mundial 2026</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="landing">
+    <div style="font-size:52px;margin-bottom:12px;">⚽</div>
+    <h1>Prode <span>Mundial 2026</span></h1>
+    <p>Predecí los resultados de la fase de grupos</p>
+
+    <div class="landing-card">
+      <h2>¿Cuál es tu alias?</h2>
+      <div class="form-group">
+        <label>Alias (nombre visible en el ranking)</label>
+        <input type="text" id="aliasInput" placeholder="Ej: Luci, El Flaco, etc." maxlength="20" autocomplete="off">
+      </div>
+      <button class="btn btn-primary" onclick="entrar()">Entrar al prode →</button>
+      <div id="error" style="color:#f85149;font-size:13px;margin-top:10px;display:none;"></div>
+    </div>
+
+    <div style="margin-top:20px;">
+      <a href="leaderboard.html" style="color:var(--text-muted);font-size:13px;text-decoration:none;">Ver ranking →</a>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
+  <script src="js/firebase-config.js"></script>
+  <script>
+    const aliasInput = document.getElementById("aliasInput");
+    const errorEl = document.getElementById("error");
+
+    // Si ya tiene alias guardado, redirigir directo
+    const saved = localStorage.getItem("prode_alias");
+    if (saved) window.location.href = "predictions.html";
+
+    aliasInput.addEventListener("keydown", e => { if (e.key === "Enter") entrar(); });
+
+    async function entrar() {
+      const alias = aliasInput.value.trim();
+      if (!alias || alias.length < 2) { showError("El alias debe tener al menos 2 caracteres."); return; }
+
+      try {
+        const userRef = db.collection("users").doc(alias);
+        const snap = await userRef.get();
+        if (!snap.exists) {
+          await userRef.set({ alias, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+        }
+        localStorage.setItem("prode_alias", alias);
+        window.location.href = "predictions.html";
+      } catch (err) {
+        showError("Error al conectar. Revisá tu conexión.");
+        console.error(err);
+      }
+    }
+
+    function showError(msg) {
+      errorEl.textContent = msg;
+      errorEl.style.display = "block";
+    }
+  </script>
+</body>
+</html>
